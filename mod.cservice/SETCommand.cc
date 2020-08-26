@@ -49,12 +49,8 @@
 #include	"levels.h"
 #include	"responses.h"
 #include	"cservice_config.h"
-#include <stdio.h>
-#ifdef HAVE_LIBOATH
-extern "C" {
-#include <liboath/oath.h>
-}
-#endif
+#include	<stdio.h>
+
 const char SETCommand_cc_rcsId[] = "$Id: SETCommand.cc,v 1.64 2008/04/16 20:34:44 danielaustin Exp $" ;
 
 namespace gnuworld
@@ -431,45 +427,121 @@ if( st[1][0] != '#' ) // Didn't find a hash?
 	}
 
 #ifdef TOTP_AUTH_ENABLED
-         if (option == "TOTP")
-         {       
-                 int admin = bot->getAdminAccessLevel(theUser);
-                 if((admin > 0) || (theUser->getFlag(sqlUser::F_OPER)) || (theClient->isOper())) {
-                         if(value == "ON") {
-                                 if(theUser->getFlag(sqlUser::F_TOTP_ENABLED)) {
-                                         bot->Notice(theClient,"TOTP is already enabled for your account");
-                                         return true;
-                                 }
-                                 if(st.size() == 3) {
-                                         bot->Notice(theClient,"WARNING:  This will enable time-based OTP (one time passwords).  Once enabled, in order to login you will require a device to generate the OTP token which has the stored secret key.  If you are sure, type: /msg X set totp ON -force"); 
-                                         return true;
-                                 }
-                                 if(string_upper(st[3]) == "-FORCE") {
-                                         //Create a random hex string 168bit long
-                                         char str_key2[20];
-                                         char hex_key[41];
-                                         srand(clock()*745+time(NULL));
-                                         hex_key[0] = 0;
-                                         for(int i=0; i < 20; i++) {
-                                                 str_key2[i]=((rand() %95) + 32);
-                                                 sprintf(hex_key+(i*2),"%02x",str_key2[i] & 0xFF);
-                                         }       
-                                         char* key;
-                                         int res = oath_base32_encode(str_key2,20,&key,NULL);
-                                         if(res != OATH_OK) {
-                                                 bot->Notice(theClient,"Failed to enable TOTP authentication, please contact a cservice representitive");
-                                                 return true;
-                                         }
-                                         theUser->setTotpKey(string(key));
-                                         theUser->setFlag(sqlUser::F_TOTP_ENABLED);
-                                         if(!theUser->commit(theClient)) {
-                                                 bot->Notice(theClient,"Failed to enable TOTP authentication, please contact a cservice representitive");
-                                                 free(key);
-                                                 return true;
-                                 }
-                         }
-                 } 
-         }
+	if (option == "TOTP")
+	{
+		if (value == "ON")
+		{
+			if (theUser->getFlag(sqlUser::F_TOTP_ENABLED))
+			{
+				bot->Notice(theClient, "TOTP is already enabled for your account");
+				return true;
+			}
+			if (!theUser->generateTOTPKey())
+			{
+				bot->Notice(theClient, "Failed to enable TOTP authentication, please contact a CService representative.");
+				return false;
+			}
+			if (!theUser->commit(theClient))
+			{
+				bot->Notice(theClient, "Failed to enable TOTP authentication, please contact a CService representative.");
+				return false;
+			}
+			bot->Notice(theClient, "TOTP key set.  Your base 32 encoded secret key is: %s", theUser->getTotpKey().c_str());
+			bot->Notice(theClient, "Your key in hex string: %s", theUser->getTotpHexKey().c_str());
+			bot->Notice(theClient, "For QR representation of your key, visit: https://cservice.undernet.org/genqr.php?code=%s&name=UnderNet", theUser->getTotpKey().c_str());
+			bot->Notice(theClient, "Please note, this key will never be presented to you again.  NEVER GIVE YOUR KEY TO ANYONE!");
+			bot->Notice(theClient, "To confirm TOTP activation please configure your device with the above key and type  /msg %s set TOTP confirm <token>", bot->getNickName().c_str());
+			return true;
+		}
+		else if (value == "CONFIRM")
+		{
+			if(theUser->getFlag(sqlUser::F_TOTP_ENABLED))
+			{
+				bot->Notice(theClient, "TOTP is already enabled for your account.");
+				return true;
+			}
+			if (st.size() == 3)
+			{
+				bot->Notice(theClient, "Usage: /msg %s set totp CONFIRM <token>", bot->getNickName().c_str());
+				return true;
+			}
+			if (theUser->getTotpKey() == "")
+			{
+				bot->Notice(theClient, "Before confirming TOTP it must be enabled using /msg %s set TOTP on", bot->getNickName().c_str());
+				return true;
+			}
+			OathResult::OATH_RESULT_TYPE response = theUser->validateTOTP(st[3].c_str());
+			if (response != OathResult::OK)
+			{
+				if (response == OathResult::ERROR)
+				{
+					bot->Notice(theClient, "TOTP key validation failed due to an error, please contact a CService representative.");
+				}
+				if (response == OathResult::INVALID_TOKEN)
+				{
+					bot->Notice(theClient, "TOTP validation failed, invalid key, please make sure your device is configured properly with the correct key.");
+				}
+				return false;
+			}
+			if (st.size() == 4)
+			{
+				bot->Notice(theClient, "WARNING:  This will enable time-based OTP (one time passwords).  Once enabled, in order to login you will require a device to generate the OTP token which has the stored secret key.  If you are sure, type: /msg %s set totp CONFIRM <token> -force",bot->getNickName().c_str());
+				return true;
+			}
+			if (string_upper(st[4]) == "-FORCE")
+			{
+				theUser->setFlag(sqlUser::F_TOTP_ENABLED);
+				if (!theUser->commit(theClient))
+				{
+					bot->Notice(theClient, "Failed to enable TOTP authentication, please contact a CService representative.");
+					return true;
+				}
+				bot->Notice(theClient, "TOTP Authentication is ENABLED");
+				return true;
+			}
+			else
+			{
+				bot->Notice(theClient, "Invalid option %s", st[4].c_str());
+				return true;
+			}
+		}
+		else if (value == "OFF")
+		{
+			if (!theUser->getFlag(sqlUser::F_TOTP_ENABLED))
+			{
+				bot->Notice(theClient, "TOTP is already disabled for your account.");
+				return true;
+			}
+			if (st.size() < 4)
+			{
+				bot->Notice(theClient, "Usage: /msg %s set totp OFF <token>", bot->getNickName().c_str());
+				return false;
+			}
+			OathResult::OATH_RESULT_TYPE response = theUser->validateTOTP(st[3].c_str());
+			if (response != OathResult::OK)
+			{
+				if (response == OathResult::ERROR)
+				{
+					bot->Notice(theClient, "TOTP key validation failed due to an error, please contact a CService representative.");
+				}
+				if (response == OathResult::INVALID_TOKEN)
+				{
+					bot->Notice(theClient, "TOTP validation failed. (Invalid Token)");
+				}
+				return false;
+			}
+			theUser->clearTotpKey();
+			theUser->clearTotpHexKey();
+			theUser->removeFlag(sqlUser::F_TOTP_ENABLED);
+			if (!theUser->commit(theClient))
+			{
+				bot->Notice(theClient, "Failed to disable TOTP authentication, please contact a CService representative.");
+				return false;
+			}
+			bot->Notice(theClient, "TOTP Authentication is DISABLED");
+			return true;
+		}
+	}
 #endif
 	if (option == "POWER")
 	{
@@ -580,6 +652,22 @@ if( st[1][0] != '#' ) // Didn't find a hash?
 				return true;
 			}
 #endif
+			if (bot->HostIsReserved(st[2]))
+			{
+#ifdef ADMINS_USE_RESTRICTED_SETHOSTS
+				bool isAdmin = bot->getAdminAccessLevel(theUser, false) > 0;
+				bool isCoder = bot->getCoderAccessLevel(theUser) > 0;
+				bool isOper = theClient->isOper();
+				if (!isAdmin && !isCoder && !isOper)
+				{
+					bot->Notice(theClient, "Setting a reserved or restricted hostname is not allowed.");
+					return true;
+				}
+#else
+				bot->Notice(theClient, "Setting a reserved or restricted hostname is not allowed.");
+				return true;
+#endif
+			}
 			string userWithHost = bot->HostIsRegisteredTo(st[2]);
 			if (!userWithHost.empty() && (userWithHost != theUser->getUserName()))
 			{
@@ -1403,7 +1491,7 @@ if (value == "ON") {
 			bot->Join(theChan->getName(), "+R",
 				theChan->getChannelTS(), false);
 			bot->joinCount++;
-			bot->reopQ.insert(cservice::reopQType::value_type(theChan->getName(), bot->currentTime() + 15) );
+			bot->reopQ.insert(cservice::reopQType::value_type(theChan->getName(), bot->currentTime() + 1) );
 		/*if (tmpChan)
 			{
 			if(theChan->getFlag(sqlChannel::F_NOOP)) bot->deopAllOnChan(tmpChan);

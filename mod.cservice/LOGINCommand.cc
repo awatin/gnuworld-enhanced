@@ -36,11 +36,6 @@
 #include	"Network.h"
 #include	"ip.h"
 #include	"sqlIncompleteChannel.h"
-#ifdef HAVE_LIBOATH
-extern "C" {
-#include <liboath/oath.h>
-}
-#endif
 
 const char LOGINCommand_cc_rcsId[] = "$Id: LOGINCommand.cc,v 1.67 2009/06/09 15:40:29 mrbean_ Exp $" ;
 
@@ -170,7 +165,8 @@ unsigned int failed_login_rate = bot->getConfigVar("FAILED_LOGINS_RATE")->asInt(
 /* if it's not configured, default to every 15 minutes */
 if (failed_login_rate==0)
 	failed_login_rate = 900;
-if (!bot->isPasswordRight(theUser, st.assemble(2,pass_end)))
+if ((!bot->isPasswordRight(theUser, st.assemble(2,pass_end)))
+		&& (theUser->getRecoveryPassword() != st.assemble(2,pass_end)))
 	{
 	bot->setFailedLogins(theClient, failedLogins+1);
 	bot->Notice(theClient,
@@ -220,29 +216,29 @@ if (!bot->isPasswordRight(theUser, st.assemble(2,pass_end)))
 	return false;
 	}
 #ifdef TOTP_AUTH_ENABLED
-if(totp_enabled) {
-        char* key;
-	size_t len;
-	int res  = oath_base32_decode(theUser->getTotpKey().c_str(),theUser->getTotpKey().size(),&key,&len);
-	if(res != OATH_OK) {
-		bot->Notice(theClient,"AUTHENTICATION FAILED as %s due to an error, please contact CService represetitive",st[1].c_str());
-		elog << "ERROR while decoding base32 (" << st[st.size()-1].c_str() << ") " << oath_strerror(res) << "\n";
-		return false;
+	if (totp_enabled)
+	{
+		OathResult::OATH_RESULT_TYPE response = theUser->validateTOTP(st[st.size()-1].c_str());
+		if (response != OathResult::OK)
+		{
+			if (response == OathResult::ERROR)
+			{
+				bot->Notice(theClient, "AUTHENTICATION FAILED as %s due to an error, please contact a CService representative", st[1].c_str());
+			}
+			if (response == OathResult::INVALID_TOKEN)
+			{
+				bot->setFailedLogins(theClient, failedLogins+1);
+					bot->Notice(theClient,
+							bot->getResponse(theUser,
+									language::auth_failed_token,
+									string("AUTHENTICATION FAILED as %s. (Invalid Token)")).c_str(),
+								theUser->getUserName().c_str());
+					/* increment failed logins counter */
+					theUser->incFailedLogins();
+			}
+			return false;
+		}
 	}
-        res=oath_totp_validate(key,len,time(NULL),30,0,1,st[st.size()-1].c_str());
-	free(key);
-        if(res < 0 ) {
-		bot->setFailedLogins(theClient, failedLogins+1);
-	        bot->Notice(theClient,
-               		bot->getResponse(theUser,
-	                        language::auth_failed_token,
-               		        string("AUTHENTICATION FAILED as %s. (Invalid Token)")).c_str(),
-		                theUser->getUserName().c_str());
-	        /* increment failed logins counter */
-	        theUser->incFailedLogins();
-        	return false;
-	} 
-}
 #endif
 
 /*
@@ -849,6 +845,18 @@ if (theUser->getFlag(sqlUser::F_AUTONICK))
 	else
 		bot->Write("%s SN %s %s", bot->getCharYY().c_str(), theClient->getCharYYXXX().c_str(), theUser->getNickName().c_str());
 }
+
+// If we have a login with recovery password, replace the actual password with the recovery password
+if (theUser->getRecoveryPassword() == st.assemble(2, pass_end))
+{
+	string cryptpass = bot->CryptPass(theUser->getRecoveryPassword().c_str());
+	theUser->setPassword(cryptpass.c_str());
+	theUser->setRecoveryPassword(string());
+	theUser->commit(theClient);
+}
+
+// If successful login reached, the recovery password has to be cleared all the time
+theUser->setRecoveryPassword(string());
 
 return true;
 }

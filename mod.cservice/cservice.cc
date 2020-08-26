@@ -259,7 +259,7 @@ RegisterCommand(new UNSUSPENDCommand(this, "UNSUSPEND", "<#channel> <username> [
 RegisterCommand(new BANCommand(this, "BAN", "<#channel> <nick | *!*user@*.host> [duration] [level] [reason]", 5));
 RegisterCommand(new UNBANCommand(this, "UNBAN", "<#channel> <*!*user@*.host>", 5));
 RegisterCommand(new LBANLISTCommand(this, "LBANLIST", "<#channel> <banmask>", 5));
-RegisterCommand(new NEWPASSCommand(this, "NEWPASS", "<new passphrase>", 8));
+RegisterCommand(new NEWPASSCommand(this, "NEWPASS", "<new passphrase|username>", 8));
 RegisterCommand(new JOINCommand(this, "JOIN", "<#channel>", 8));
 RegisterCommand(new PARTCommand(this, "PART", "<#channel>", 8));
 RegisterCommand(new OPERJOINCommand(this, "OPERJOIN", "<#channel>", 8));
@@ -275,7 +275,7 @@ RegisterCommand(new SCANEMAILCommand(this, "SCANEMAIL", "<mask> [-all]", 10));
 RegisterCommand(new REMIGNORECommand(this, "REMIGNORE", "<mask>", 5));
 RegisterCommand(new REGISTERCommand(this, "REGISTER", "<#channel>", 8));
 RegisterCommand(new REMOVEALLCommand(this, "REMOVEALL", "<#channel>", 15));
-RegisterCommand(new PURGECommand(this, "PURGE", "<#channel> [-noop] <reason>", 8));
+RegisterCommand(new PURGECommand(this, "PURGE", "<username | #channel> [-noop] <reason>", 8));
 RegisterCommand(new ACCEPTCommand(this, "ACCEPT", "<#channel> <decision>", 8));
 RegisterCommand(new REJECTCommand(this, "REJECT", "<#channel> <decision>", 8));
 RegisterCommand(new RENAMECommand(this, "RENAME", "<old_username> <new_username>", 5));
@@ -398,13 +398,25 @@ commandlogPath = cserviceConfig->Require( "command_logfile" )->second ;
 /* adminlogPath = cserviceConfig->Require( "admin_logfile" )->second ; */
 
 #ifdef ALLOW_HELLO
-  helloBlockPeriod = atoi( cserviceConfig->Require( 
-    "hello_block_period" )->second.c_str() ) ;
+  helloBlockPeriod = atoi(cserviceConfig->Require("hello_block_period")->second.c_str());
+  helloSendmailEnabled = atoi((cserviceConfig->Require("hello_sendmail_enabled")->second).c_str()) == 1;
 #endif // ALLOW_HELLO
+
+  sendmailFrom = cserviceConfig->Require("sendmail_from")->second;
 
 #ifdef TOTP_AUTH_ENABLED
   totpAuthEnabled = atoi((cserviceConfig->Require( "enable_totp" )->second).c_str()) == 1; 
 #endif
+
+reservedHostsList.push_back(hostName);
+reservedHostsList.push_back("*" + iClient::getHiddenHostSuffix());
+
+EConfig::const_iterator ptr = cserviceConfig->Find("reservedHost");
+while (ptr != cserviceConfig->end() && ptr->first == "reservedHost")
+{
+	reservedHostsList.push_back(ptr->second);
+	ptr++;
+}
 
 loadConfigData();
 
@@ -488,6 +500,7 @@ for (incompleteChanRegsType::iterator ptr = incompleteChanRegs.begin();
 	delete ptr->second;
 }
 incompleteChanRegs.clear();
+reservedHostsList.clear();
 }
 
 void cservice::BurstChannels()
@@ -521,7 +534,10 @@ void cservice::BurstChannels()
 	if (theChan->getFlag(sqlChannel::F_AUTOJOIN)) 
 		{
 		string tempModes = theChan->getChannelMode();
-		tempModes += 'R';
+		if (tempModes.empty())
+			tempModes = "+";
+		if (tempModes.find('R') == string::npos)
+			tempModes += 'R';
 		MyUplink->JoinChannel( this,
 			theChan->getName(),
 			tempModes,
@@ -1283,7 +1299,7 @@ if (id[0]=='=')
 	iClient *client = Network->findNick(theNick);
 	if (client) return isAuthed(client,false);
 
-	return 0;
+	return NULL;
 	}
 /*
  *  Check if this record is already in the cache.
@@ -1334,7 +1350,7 @@ else
 	delete theUser ;
 	}
 
-return 0;
+return NULL;
 }
 
 /**
@@ -1354,11 +1370,11 @@ sqlUser* cservice::getUserRecord(int Id)
 		     << SQLDb->ErrorMessage()
 		     << endl ;
 	#endif
-		return false;
+		return NULL;
 	} else if (SQLDb->Tuples() == 0)
 	{
 		logDebugMessage("getUserRecordUserIdQuery = 0 !");
-		return 0;
+		return NULL;
 	}
 	string id = SQLDb->GetValue(0,0);
 /*
@@ -1410,7 +1426,7 @@ else
 	delete theUser ;
 	}
 
-return 0;
+return NULL;
 }
 
 void cservice::updateUserCacheUserName(sqlUser* updateUser, const string& newUserName)
@@ -2442,7 +2458,7 @@ void cservice::cacheExpireUsers()
 
 #ifdef LOG_SQL
 					elog	<< "cservice::cacheExpireUsers::sqlQuery> "
-						<< updateQuery
+						<< updateQuery.str()
 						<< endl;
 #endif
 					SQLDb->Exec(updateQuery.str());
@@ -3542,7 +3558,7 @@ if (timer_id == pending_timerID)
 	checkObjections();
 	checkAccepts();
 	checkRewievs();
-	checkPendingCleanups();
+	cleanUpPendings();
 
 	/*
 	 * Load a list of channels in NOTIFICATION stage and send them
@@ -4897,7 +4913,7 @@ void cservice::checkRewievs()
 
 // After a time, we cleanup de databes from old application data's: pending channels, supporters, etc
 //But this is valuable *only* for channels Accepted OR Rejected !!!
-void cservice::checkPendingCleanups()
+void cservice::cleanUpPendings()
 {
 	//If PendingsExpireTime == 0 than feature is disabled
 	if (!PendingsExpireTime) return;
@@ -5361,7 +5377,7 @@ for( xServer::opVectorType::const_iterator ptr = theTargets.begin() ;
 				reggedChan->getName().c_str());
 			/* Add this chan to the reop queue, ready to op itself in 15 seconds. */
 			reopQ.insert(cservice::reopQType::value_type(reggedChan->getName(),
-				currentTime() + 15) );
+				currentTime() + 1) );
 			}
 		}
 	} // for()
@@ -7176,6 +7192,16 @@ string cservice::HostIsRegisteredTo(const string& theHost)
 	return theUser;
 }
 
+bool cservice::HostIsReserved(const string& theHost)
+{
+	for (reservedHostsListType::iterator itr = reservedHostsList.begin(); itr != reservedHostsList.end(); itr++)
+	{
+		if (!match((*itr), theHost))
+			return true;
+	}
+	return false;
+}
+
 bool cservice::Notice( const iClient* Target, const char* Message, 
 	... )
 {
@@ -8355,6 +8381,25 @@ for( size_t ii = 0; ii < MD5_DIGEST_LENGTH; ii++ )
 output << ends;
 
 return string( salt + output.str()  );
+}
+
+bool cservice::SendMail(const string& address, const string& subject, const stringstream& mailtext)
+{
+	std::ofstream TMail;
+	TMail.open("mailbody.txt", std::ios::out);
+	if (!TMail)
+	{
+		logDebugMessage(" *** ERROR while sending email");
+		return false;
+	}
+	TMail << mailtext.str().c_str();
+	TMail.close();
+	stringstream mailcommand;
+	mailcommand << "mail -s " << "\"" << subject.c_str() << "\" -r \"" << this->sendmailFrom.c_str() << "\" " << address.c_str() << " < mailbody.txt" << endl << ends;
+	elog << "mailcommand = '" << mailcommand.str() << endl << ends;
+	//Devnote: alternate way of sending mail: echo "Mail body text here" | mail -s "Subject" -r "from@address" email@address.com
+	system(mailcommand.str().c_str());
+	return true;
 }
 
 bool cservice::addGline( csGline* TempGline)

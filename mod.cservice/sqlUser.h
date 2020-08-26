@@ -33,6 +33,16 @@
 namespace gnuworld
 {
 
+namespace OathResult
+{
+	enum OATH_RESULT_TYPE
+	{
+		OK,
+		INVALID_TOKEN,
+		ERROR
+	};
+}
+
 class iClient;
 
 class sqlUser
@@ -78,6 +88,9 @@ public:
 
 	inline const std::string&	getPassword() const
 		{ return password ; }
+
+	inline const std::string&	getRecoveryPassword() const
+		{ return recovery_password ; }
 
 	inline const std::string&	getUrl() const
 		{ return url ; }
@@ -155,6 +168,9 @@ public:
 	inline const std::string&	getTotpKey() const
 		{ return totp_key ; }
 
+	inline const std::string&	getTotpHexKey() const
+		{ return totp_hex_key ; }
+
 	inline const std::string&	getHostName() const
 		{ return hostname ; }
 
@@ -170,6 +186,9 @@ public:
 
 	inline void setPassword( const std::string& _password )
 		{ password = _password; }
+
+	inline void setRecoveryPassword( const std::string& _recovery_password )
+		{ recovery_password = _recovery_password; }
 
 	inline void setUrl( const std::string& _url )
 		{ url = _url; }
@@ -236,6 +255,12 @@ public:
 	inline void setLastFailedLoginTS( const unsigned int& _ts )
 		{ failed_login_ts = _ts ; }
 
+	inline void clearTotpKey()
+		{ totp_key = std::string(); }
+
+	inline void clearTotpHexKey()
+		{ totp_hex_key = std::string(); }
+
 	inline void setHostName( const std::string& _hostname )
 		{ hostname = _hostname ; }
 
@@ -257,6 +282,9 @@ public:
 	void setAllMembers( int );
 	void writeEvent( unsigned short, sqlUser*, const std::string& );
 	const std::string getLastEvent( unsigned short, unsigned int&);
+	void generateRecoveryPassword();
+	bool generateTOTPKey();
+	OathResult::OATH_RESULT_TYPE validateTOTP(const std::string& );
 
 	/*
 	 * List of all network users authenticated as this account.
@@ -269,6 +297,7 @@ protected:
 	unsigned int	id ;
 	std::string	user_name ;
 	std::string	password ;
+	std::string recovery_password;
 	time_t		last_seen ;
 	std::string	url ;
 	std::string	nickname ;
@@ -291,10 +320,11 @@ protected:
 	unsigned int	failed_logins;
 	unsigned int	failed_login_ts;
 	std::string	totp_key;
+	std::string	totp_hex_key; //Note: this will be available for display only when totp is activated, it is not saved to the db (no need)
 	std::string	hostname;
 
 	dbHandle*	SQLDb;
-} ;
+};
 
 } // namespace gnuworld
 

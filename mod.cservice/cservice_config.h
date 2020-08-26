@@ -182,4 +182,14 @@
  */
 #define VALIDATE_SET_HOSTNAME
 
+/**
+ * Enable this if you want to allow admins and opers to set restricted/reserved hosts
+ */
+#define ADMINS_USE_RESTRICTED_SETHOSTS
+
+/**
+ * Define this if you want to enable coder-access levels in VERIFYCommand
+ */
+#define USE_CODER_LEVELS
+
 #endif // __CSERVICE_CONFIG_H

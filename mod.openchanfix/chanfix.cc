@@ -1041,15 +1041,18 @@ switch(whichEvent)
 		  delete myOps;
 		}
 		
-		/* Now we need to remove this iClient from the auth map */
-		authMapType::iterator ptr = authMap.find(theClient->getAccount());
-		
-		if (ptr != authMap.end()) {
-		  ptr->second.erase(std::find(ptr->second.begin(), ptr->second.end(), theClient));
+		if (!theClient->getAccount().empty())
+		{
+			/* Now we need to remove this iClient from the auth map */
+			authMapType::iterator ptr = authMap.find(theClient->getAccount());
 			
-		  /* If the list is empty, remove the map entry */
-		  if (ptr->second.empty())
-		    authMap.erase(theClient->getAccount());
+			if (ptr != authMap.end()) {
+			  ptr->second.erase(std::find(ptr->second.begin(), ptr->second.end(), theClient));
+
+			  /* If the list is empty, remove the map entry */
+			  if (ptr->second.empty())
+				authMap.erase(theClient->getAccount());
+			}
 		}
 		//Cleanup
 		theClient->removeCustomData(this);
@@ -2159,7 +2162,7 @@ chanStatus      << "* Channel Status for "
 		<< netChan->getName() << ": "
 		<< netChan->banList_size()
                 << " bans -- Restrictive Modes: +"
-		<< chanModes
+		<< chanModes.str()
                 ;
 
 SendTo(theClient, chanStatus.str().c_str());

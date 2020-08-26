@@ -445,7 +445,7 @@ public:
 	void checkObjections();
 	void checkAccepts();
 	void checkRewievs();
-	void checkPendingCleanups();
+	void cleanUpPendings();
 	void loadIncompleteChanRegs();
 
 	/* End of The Judge */
@@ -721,13 +721,22 @@ public:
 	typedef std::map< int, time_t > helloIPListType ;
 	helloIPListType	helloIPList ;
 	unsigned int helloBlockPeriod ;
+	bool helloSendmailEnabled;
 #endif // ALLOW_HELLO
+
+	string sendmailFrom;
+	bool SendMail(const string& address, const string& subject, const std::stringstream& mailtext);
 
 #ifdef TOTP_AUTH_ENABLED
 	bool totpAuthEnabled;
 #endif
 	string HostIsRegisteredTo(const string& );
-} ;
+
+	typedef std::list<string> reservedHostsListType;
+	reservedHostsListType	reservedHostsList;
+
+	bool HostIsReserved(const string& );
+};
 
 const string escapeSQLChars(const string& theString);
 const string searchSQL(const string& theString);

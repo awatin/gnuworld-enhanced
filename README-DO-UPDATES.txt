@@ -1,4 +1,27 @@
 ==============================================================================
+2020.04.26 * SETHOST: Prevent setting some restricted/reserved hostnames
+------------------------------------------------------------------------------
+If you have an existing installation, you can upgrade with the following steps:
+gnuworld@ubuntu:~$ cd gnuworld-enhanced
+gnuworld@ubuntu:~/gnuworld-enhanced$ git pull
+gnuworld@ubuntu:~/gnuworld-enhanced$ make; make install
+ - Add the new restricted/reserved hostnames section from cservice.example.conf to your cservice.conf
+ ... restart gnuworld ...
+
+ - If you just edited/updated the restricted hostnames in cservice.conf just:
+ ... restart gnuworld ...
+Done.
+
+ - If you don't want to allow admins/opers to set restricted/reserved hosts, edit
+
+ mod.cservice/cservice_config.h
+
+#undef ADMINS_USE_RESTRICTED_SETHOSTS
+
+gnuworld@ubuntu:~/gnuworld-enhanced$ make; make install
+ ... restart gnuworld ...
+Done.
+==============================================================================
 2016.02.18 Added halfop support: mod.cservice HALFOPCommand and HALFDEOPCommand
 ------------------------------------------------------------------------------
 If you have an existing installation, you can upgrade with the following steps:
@@ -11,7 +34,7 @@ gnuworld@ubuntu:~/gnuworld-enhanced$ make; make install
 Done.
 Note: If doesn't works, follow the steps like in SCANCommand, saving libltdl, and doing the autoreconf
 ============================================================================
-2016.02.04 Recognizing and handling Nefarious2's cloacked IP and cloacked Host
+2016.02.04 Recognizing and handling Nefarious2's cloaked IP and cloaked Host
 ----------------------------------------------------------------------------
 If you have an existing installation, you can upgrade with the following steps:
 gnuworld@ubuntu:~$ cd gnuworld-enhanced
@@ -19,7 +42,7 @@ gnuworld@ubuntu:~/gnuworld-enhanced$ git pull
 gnuworld@ubuntu:~/gnuworld-enhanced$ make; make install
  ... restart gnuworld ...
 Done.
-Also don't forget to set "HOST_HIDING_STYLE" > 1 in Nefarious2's ircd.conf if you intend to see cloacked IPs/hosts
+Also don't forget to set "HOST_HIDING_STYLE" > 1 in Nefarious2's ircd.conf if you intend to see cloaked IPs/hosts
 ============================================================================
 2016.01.08 Prevent users to set 'exotic' hostnames, like with colors, etc.
 ----------------------------------------------------------------------------
